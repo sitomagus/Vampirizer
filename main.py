@@ -133,7 +133,7 @@ def callback():
     return "✅ Spotify conectado! Agora você pode usar /vampirizar no bot."
 
 def run_flask():
-    flask_app.run(host="0.0.0.0", port=8000)
+    flask_app.run(host="0.0.0.0", port=8080)
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
