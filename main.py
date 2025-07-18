@@ -1,5 +1,5 @@
-import json
 import os
+import json
 import asyncio
 import time
 import requests
@@ -17,7 +17,7 @@ SPOTIPY_CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID")
 SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET")
 SPOTIPY_REDIRECT_URI = os.getenv("SPOTIPY_REDIRECT_URI")
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # URL pública do seu webhook
 
 users_file = "users.json"
 
@@ -40,7 +40,7 @@ def get_lastfm_nowplaying(username):
     url = f"https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user={username}&api_key={LASTFM_API_KEY}&format=json&limit=1"
     r = requests.get(url).json()
     track = r['recenttracks']['track'][0]
-    if '@attr' in track and track['@attr']['nowplaying'] == 'true':
+    if '@attr' in track and track['@attr'].get('nowplaying') == 'true':
         return track['artist']['#text'], track['name']
     return None, None
 
@@ -114,11 +114,12 @@ app.add_handler(CommandHandler("regspotify", regspotify))
 app.add_handler(CommandHandler("vampirizar", vampirizar))
 
 flask_app = Flask(__name__)
+async_loop = None  # guardaremos o loop aqui
 
 @flask_app.route('/telegram', methods=['POST'])
 def telegram_webhook():
     update = Update.de_json(request.json, app.bot)
-    asyncio.run_coroutine_threadsafe(app.update_queue.put(update), app.loop)
+    asyncio.run_coroutine_threadsafe(app.update_queue.put(update), async_loop)
     return "OK"
 
 @flask_app.route('/callback')
@@ -136,12 +137,13 @@ def callback():
     return "✅ Spotify conectado! Agora você pode usar /vampirizar no bot."
 
 if __name__ == "__main__":
-    import asyncio
-
     async def main():
+        global async_loop
         await app.initialize()
         await app.bot.set_webhook(url=WEBHOOK_URL)
         await app.start()
+        async_loop = asyncio.get_running_loop()
         flask_app.run(host="0.0.0.0", port=8080)
 
     asyncio.run(main())
+
