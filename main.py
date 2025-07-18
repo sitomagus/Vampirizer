@@ -1,5 +1,6 @@
 import json
 import os
+import asyncio
 import time
 import requests
 from dotenv import load_dotenv
@@ -45,7 +46,6 @@ def get_lastfm_nowplaying(username):
 
 app = Application.builder().token(TELEGRAM_TOKEN).build()
 
-# Telegram Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""🎧 Bem-vindo ao Vampirizer 🩸
 
@@ -108,18 +108,18 @@ async def vampirizar_loop(user_id, vitima_lastfm):
                 last_track = (artist, track)
         await asyncio.sleep(10)
 
-# Registrar Handlers
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("reglast", reglast))
 app.add_handler(CommandHandler("regspotify", regspotify))
 app.add_handler(CommandHandler("vampirizar", vampirizar))
 
-# Flask app para Telegram e Spotify juntos
 flask_app = Flask(__name__)
 
 @flask_app.route('/telegram', methods=['POST'])
 def telegram_webhook():
-    return app.update_queue.put_nowait(Update.de_json(request.json, app.bot))
+    update = Update.de_json(request.json, app.bot)
+    asyncio.run_coroutine_threadsafe(app.update_queue.put(update), app.loop)
+    return "OK"
 
 @flask_app.route('/callback')
 def callback():
@@ -133,8 +133,15 @@ def callback():
         cache_path=f".cache-{user_id}"
     )
     sp_oauth.get_access_token(code=code, as_dict=False)
-    return "✅ Spotify conectado! Agora use /vampirizar no bot."
+    return "✅ Spotify conectado! Agora você pode usar /vampirizar no bot."
 
 if __name__ == "__main__":
-    app.bot.set_webhook(url=WEBHOOK_URL)
-    flask_app.run(host="0.0.0.0", port=8080)
+    import asyncio
+
+    async def main():
+        await app.initialize()
+        await app.bot.set_webhook(url=WEBHOOK_URL)
+        await app.start()
+        flask_app.run(host="0.0.0.0", port=8080)
+
+    asyncio.run(main())
