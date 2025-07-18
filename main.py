@@ -8,7 +8,7 @@ from flask import Flask, request
 from spotipy import Spotify
 from spotipy.oauth2 import SpotifyOAuth
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 load_dotenv()
 
@@ -17,6 +17,7 @@ SPOTIPY_CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID")
 SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET")
 SPOTIPY_REDIRECT_URI = os.getenv("SPOTIPY_REDIRECT_URI")
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 users_file = "users.json"
 
@@ -107,15 +108,7 @@ async def vampirizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Vampirizando {vitima} 🧛🎧")
     threading.Thread(target=vampirizar_loop, args=(user_id, vitima), daemon=True).start()
 
-def run_bot():
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("reglast", reglast))
-    app.add_handler(CommandHandler("regspotify", regspotify))
-    app.add_handler(CommandHandler("vampirizar", vampirizar))
-    app.run_polling()
-
-# Flask App para receber o callback do Spotify
+# Flask App para Spotify callback
 flask_app = Flask(__name__)
 
 @flask_app.route('/callback')
@@ -129,12 +122,23 @@ def callback():
                             scope="user-modify-playback-state user-read-playback-state",
                             cache_path=f".cache-{user_id}")
 
-    token_info = sp_oauth.get_access_token(code)
+    sp_oauth.get_access_token(code)
     return "✅ Spotify conectado! Agora você pode usar /vampirizar no bot."
 
-def run_flask():
-    flask_app.run(host="0.0.0.0", port=8080)
+def run():
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("reglast", reglast))
+    app.add_handler(CommandHandler("regspotify", regspotify))
+    app.add_handler(CommandHandler("vampirizar", vampirizar))
+
+    # Webhook do Telegram junto com o Flask
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=8080,
+        webhook_url=WEBHOOK_URL
+    )
 
 if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()
-    run_bot()
+    threading.Thread(target=run).start()
+    flask_app.run(host="0.0.0.0", port=8080)
