@@ -119,7 +119,7 @@ async_loop = None  # guardaremos o loop aqui
 @flask_app.route('/telegram', methods=['POST'])
 def telegram_webhook():
     update = Update.de_json(request.json, app.bot)
-    asyncio.run_coroutine_threadsafe(app.update_queue.put(update), async_loop)
+    asyncio.run(app.process_update(update))
     return "OK"
 
 @flask_app.route('/callback')
