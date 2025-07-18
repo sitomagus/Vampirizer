@@ -1,6 +1,5 @@
 import json
 import os
-import threading
 import time
 import requests
 from dotenv import load_dotenv
@@ -44,6 +43,9 @@ def get_lastfm_nowplaying(username):
         return track['artist']['#text'], track['name']
     return None, None
 
+app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+# Telegram Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""🎧 Bem-vindo ao Vampirizer 🩸
 
@@ -64,26 +66,33 @@ async def reglast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def regspotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
-
-    sp_oauth = SpotifyOAuth(client_id=SPOTIPY_CLIENT_ID,
-                            client_secret=SPOTIPY_CLIENT_SECRET,
-                            redirect_uri=SPOTIPY_REDIRECT_URI,
-                            scope="user-modify-playback-state user-read-playback-state",
-                            cache_path=f".cache-{user_id}")
-
+    sp_oauth = SpotifyOAuth(
+        client_id=SPOTIPY_CLIENT_ID,
+        client_secret=SPOTIPY_CLIENT_SECRET,
+        redirect_uri=SPOTIPY_REDIRECT_URI,
+        scope="user-modify-playback-state user-read-playback-state",
+        cache_path=f".cache-{user_id}"
+    )
     auth_url = sp_oauth.get_authorize_url(state=user_id)
-
-    users.setdefault(user_id, {})['spotify_oauth_cache'] = f".cache-{user_id}"
-    save_users()
     await update.message.reply_text(f"Clique para conectar o Spotify:\n{auth_url}")
 
-def vampirizar_loop(user_id, vitima_lastfm):
-    sp_oauth = SpotifyOAuth(client_id=SPOTIPY_CLIENT_ID,
-                            client_secret=SPOTIPY_CLIENT_SECRET,
-                            redirect_uri=SPOTIPY_REDIRECT_URI,
-                            scope="user-modify-playback-state user-read-playback-state",
-                            cache_path=f".cache-{user_id}")
+async def vampirizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+    if len(context.args) == 0:
+        await update.message.reply_text("Uso: /vampirizar <vitima_lastfm>")
+        return
+    vitima = context.args[0]
+    await update.message.reply_text(f"Vampirizando {vitima} 🧛🎧")
+    context.application.create_task(vampirizar_loop(user_id, vitima))
 
+async def vampirizar_loop(user_id, vitima_lastfm):
+    sp_oauth = SpotifyOAuth(
+        client_id=SPOTIPY_CLIENT_ID,
+        client_secret=SPOTIPY_CLIENT_SECRET,
+        redirect_uri=SPOTIPY_REDIRECT_URI,
+        scope="user-modify-playback-state user-read-playback-state",
+        cache_path=f".cache-{user_id}"
+    )
     sp = Spotify(auth_manager=sp_oauth)
     last_track = None
 
@@ -97,48 +106,35 @@ def vampirizar_loop(user_id, vitima_lastfm):
                     uri = result['tracks']['items'][0]['uri']
                     sp.start_playback(uris=[uri])
                 last_track = (artist, track)
-        time.sleep(10)
+        await asyncio.sleep(10)
 
-async def vampirizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.message.from_user.id)
-    if len(context.args) == 0:
-        await update.message.reply_text("Uso: /vampirizar <vitima_lastfm>")
-        return
-    vitima = context.args[0]
-    await update.message.reply_text(f"Vampirizando {vitima} 🧛🎧")
-    threading.Thread(target=vampirizar_loop, args=(user_id, vitima), daemon=True).start()
+# Registrar Handlers
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("reglast", reglast))
+app.add_handler(CommandHandler("regspotify", regspotify))
+app.add_handler(CommandHandler("vampirizar", vampirizar))
 
-# Flask App para Spotify callback
+# Flask app para Telegram e Spotify juntos
 flask_app = Flask(__name__)
+
+@flask_app.route('/telegram', methods=['POST'])
+def telegram_webhook():
+    return app.update_queue.put_nowait(Update.de_json(request.json, app.bot))
 
 @flask_app.route('/callback')
 def callback():
     code = request.args.get('code')
     user_id = request.args.get('state')
-
-    sp_oauth = SpotifyOAuth(client_id=SPOTIPY_CLIENT_ID,
-                            client_secret=SPOTIPY_CLIENT_SECRET,
-                            redirect_uri=SPOTIPY_REDIRECT_URI,
-                            scope="user-modify-playback-state user-read-playback-state",
-                            cache_path=f".cache-{user_id}")
-
-    sp_oauth.get_access_token(code)
-    return "✅ Spotify conectado! Agora você pode usar /vampirizar no bot."
-
-def run():
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("reglast", reglast))
-    app.add_handler(CommandHandler("regspotify", regspotify))
-    app.add_handler(CommandHandler("vampirizar", vampirizar))
-
-    # Webhook do Telegram junto com o Flask
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=8080,
-        webhook_url=WEBHOOK_URL
+    sp_oauth = SpotifyOAuth(
+        client_id=SPOTIPY_CLIENT_ID,
+        client_secret=SPOTIPY_CLIENT_SECRET,
+        redirect_uri=SPOTIPY_REDIRECT_URI,
+        scope="user-modify-playback-state user-read-playback-state",
+        cache_path=f".cache-{user_id}"
     )
+    sp_oauth.get_access_token(code=code, as_dict=False)
+    return "✅ Spotify conectado! Agora use /vampirizar no bot."
 
 if __name__ == "__main__":
-    threading.Thread(target=run).start()
+    app.bot.set_webhook(url=WEBHOOK_URL)
     flask_app.run(host="0.0.0.0", port=8080)
